@@ -1,0 +1,34 @@
+name: Build Redmi Note 10 Pro Kernel
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v3
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential bc bison flex libssl-dev libelf-dev clang lld llvm qemu-user-static ccache
+
+      - name: Setup Toolchain
+        run: |
+          mkdir -p clang
+          wget -q https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
+          tar -xf master.tar.gz -C clang --strip-components=1
+          rm master.tar.gz
+
+      - name: Build Kernel
+        run: |
+          chmod +x build_ksu.sh
+          ./build_ksu.sh
+
+      - name: Upload Kernel Artifacts
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: Kernel-RedmiNote10Pro
+          path: out/arch/arm64/boot/Image.gz-dtb
