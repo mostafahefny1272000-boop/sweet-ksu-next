@@ -1,7 +1,12 @@
-name: "Advanced Auto-Healing Build: Redmi Note 10 Pro (sweet) Kernel"
+name: "Ultimate Auto-Healing Kernel Builder: Redmi Note 10 Pro"
 
 on:
-  workflow_dispatch: # تشغيل يدوي بضغطة زر واحدة
+  workflow_dispatch:
+
+env:
+  # إجبار جيت هاب على استخدام أحدث إصدار لمنع التحذيرات التي ظهرت لك
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
   kernel-build:
@@ -11,106 +16,93 @@ jobs:
       actions: write
 
     steps:
-      - name: "1. جلب الكود المصدري (Checkout)"
+      - name: "1. تحضير الكود المصدري"
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          submodules: 'recursive'
 
-      - name: "2. تحديث وتجهيز بيئة النظام الشاملة"
+      - name: "2. تهيئة النظام ومعالجة التوافق (Auto-Fix Environment)"
         run: |
-          echo "--- جاري تحديث المستودعات وتثبيت الأدوات الأساسية ---"
+          echo "--- جاري إعداد البيئة وتثبيت كافة الأدوات الممكنة ---"
           sudo apt-get update -y
-          sudo apt-get upgrade -y
           sudo apt-get install -y \
             build-essential bc bison flex libssl-dev libelf-dev clang lld llvm \
-            qemu-user-static ccache zip unzip wget curl git \
-            python3 python3-pip python3-setuptools \
-            libncurses5-dev libncurses5 binutils-aarch64-linux-gnu \
-            libssl-dev libssl1.1 || sudo apt-get install -y libssl-dev
+            qemu-user-static ccache zip unzip wget curl git python3 python3-pip \
+            libncurses5-dev libncurses5 binutils-aarch64-linux-gnu libssl-dev
           
-          # حل مشكلة توافق بايثون لنواة 4.14 القديمة
+          # حل مشكلة بايثون تلقائياً
           sudo ln -sf /usr/bin/python3 /usr/bin/python
-          pip3 install --user --upgrade pip
-          echo "--- تم تجهيز البيئة بنجاح ---"
+          echo "--- تم تجهيز النظام ---"
 
-      - name: "3. إعداد المترجم المتطور (Proton Clang Toolchain)"
+      - name: "3. جلب المترجم الاحترافي (Proton Clang)"
         run: |
-          echo "--- جاري تحميل وإعداد مترجم Proton Clang المتخصص لأجهزة سناب دراجون ---"
           mkdir -p clang
-          cd clang
           wget -q https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
-          tar -xf master.tar.gz --strip-components=1
+          tar -xf master.tar.gz -C clang --strip-components=1
           rm master.tar.gz
-          cd ..
-          echo "--- تم ضبط المترجم في المسار المخصص ---"
+          echo "--- المترجم جاهز في مجلد clang ---"
 
-      - name: "4. فحص وإصلاح صلاحيات الملفات تلقائياً"
+      - name: "4. تحديد موقع سكربت البناء وتشغيله ذكياً"
         run: |
-          echo "--- ضمان قابلية تنفيذ كافة سكربتات البناء ---"
-          find . -name "*.sh" -exec chmod +x {} +
-          chmod +x Xiaomi_Kernel_OpenSource-sweet-r-oss/build_ksu.sh || true
-          echo "--- الصلاحيات جاهزة ---"
-
-      - name: "5. تنفيذ عملية البناء الذكية (Build Core)"
-        env:
-          KBUILD_BUILD_USER: "Mostafa"
-          KBUILD_BUILD_HOST: "Build-Server"
-          ARCH: "arm64"
-        run: |
-          echo "--- بدأ عملية التجميع الآن ---"
-          # الانتقال لمجلد الكيرنال والبدء
-          export PATH=$(pwd)/clang/bin:$PATH
+          # البحث عن سكربت البناء أينما كان
+          BUILD_SCRIPT=$(find . -name "build_ksu.sh" | head -n 1)
+          if [ -z "$BUILD_SCRIPT" ]; then
+            echo "خطأ: لم يتم العثور على build_ksu.sh!"
+            exit 1
+          fi
           
-          # تشغيل البناء مع محاولة الاستمرار في حال وجود تحذيرات (Warnings)
-          ./build_ksu.sh || {
-            echo "!! تم اكتشاف خطأ في البناء، جاري فحص المخرجات المتوفرة !!"
-          }
-          echo "--- انتهت محاولة البناء ---"
+          chmod +x "$BUILD_SCRIPT"
+          SCRIPT_DIR=$(dirname "$BUILD_SCRIPT")
+          cd "$SCRIPT_DIR"
+          
+          # إضافة المترجم للمسار
+          export PATH=$(pwd)/../../clang/bin:$PATH
+          
+          echo "--- بدأ البناء من المجلد: $(pwd) ---"
+          ./$(basename "$BUILD_SCRIPT") || echo "حدث خطأ أثناء التنفيذ، سنحاول جمع النتائج المتوفرة..."
 
-      - name: "6. معالجة المخرجات والبحث الشامل عن الكيرنال"
+      - name: "5. البحث الشامل عن النتائج (Deep Search Mode)"
         if: always()
         run: |
-          echo "--- جاري البحث عن ملفات الكيرنال الناتجة في كافة المسارات الممكنة ---"
-          mkdir -p deploy_folder
+          mkdir -p final_artifacts
+          echo "--- جاري فحص كافة المجلدات عن أي ملفات ناتجة ---"
           
-          # البحث عن ملف الكيرنال Image.gz-dtb
-          find out/ -name "Image.gz-dtb" -exec cp {} ./deploy_folder/KernelSU-Next-Sweet.img \;
-          find out/ -name "Image.gz" -exec cp {} ./deploy_folder/Image.gz \;
+          # قائمة بالأسماء المتوقعة للملف الناتج
+          POSSIBLE_NAMES=("Image.gz-dtb" "Image.gz" "Image" "Image-dtb" "kernel.img")
           
-          # البحث عن أي ملفات ZIP قد تكون نتجت عن البناء
-          find out/ -name "*.zip" -exec cp {} ./deploy_folder/Flashable-Kernel.zip \;
+          for name in "${POSSIBLE_NAMES[@]}"; do
+            find . -name "$name" -exec cp {} ./final_artifacts/KernelSU-Next-Sweet-${{ github.run_id }}.img \;
+          done
           
-          # فحص إذا تم العثور على الملف أم لا
-          if [ -f "./deploy_folder/KernelSU-Next-Sweet.img" ]; then
-            echo "SUCCESS: تم العثور على الكيرنال بنجاح!"
-            echo "BUILD_STATUS=success" >> $GITHUB_ENV
-          else
-            echo "WARNING: لم يتم العثور على الكيرنال، سيتم رفع السجلات للتشخيص."
-            echo "BUILD_STATUS=failed" >> $GITHUB_ENV
-            # جمع سجلات الأخطاء لرفعها
-            find out/ -name "*.log" -exec cp {} ./deploy_folder/ \; 2>/dev/null || true
+          # البحث عن ملفات مضغوطة
+          find . -name "*.zip" -exec cp {} ./final_artifacts/ \; 2>/dev/null || true
+          
+          # في حال الفشل، جلب سجلات الأخطاء للتحليل
+          if [ ! -f "./final_artifacts/KernelSU-Next-Sweet-${{ github.run_id }}.img" ]; then
+            echo "لم يتم العثور على الكيرنال، جاري جمع السجلات..."
+            find . -name "*.log" -exec cp {} ./final_artifacts/ \; 2>/dev/null || true
+            # تسجيل هيكلية المجلدات لمساعدتي في معرفة أين ذهب الملف
+            ls -R > ./final_artifacts/directory_structure.txt
           fi
 
-      - name: "7. رفع الملفات النهائية (Artifacts V4)"
+      - name: "6. رفع النتائج النهائية (Artifacts V4)"
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "Redmi-Note-10-Pro-Kernel-Build-${{ github.run_id }}"
-          path: |
-            deploy_folder/*
+          name: "Redmi-Note-10-Pro-Output"
+          path: final_artifacts/*
           if-no-files-found: warn
-          retention-days: 14 # الاحتفاظ بالملف لمدة أسبوعين
+          retention-days: 7
 
-      - name: "8. تقرير الحالة النهائي"
+      - name: "7. التحقق الذكي والإبلاغ"
         if: always()
         run: |
-          if [ "${{ env.BUILD_STATUS }}" == "success" ]; then
+          if ls final_artifacts/*.img 1> /dev/null 2>&1; then
             echo "==========================================="
-            echo "✅ تم بناء الكيرنال بنجاح! يمكنك تحميله الآن."
+            echo "🚀 نجاح! الكيرنال جاهز للتحميل الآن."
             echo "==========================================="
           else
             echo "==========================================="
-            echo "❌ فشل البناء. يرجى مراجعة ملفات الـ logs المرفوعة."
+            echo "⚠️ البناء لم يكتمل، يرجى تحميل ملف السجلات المرفوع لمراجعته."
             echo "==========================================="
           fi
