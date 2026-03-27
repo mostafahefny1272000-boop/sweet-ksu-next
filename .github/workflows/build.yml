@@ -1,34 +1,61 @@
-name: Build Redmi Note 10 Pro Kernel
+name: Build Redmi Note 10 Pro (sweet) Kernel
 on:
-  workflow_dispatch:
+  workflow_dispatch: # تشغيل يدوي بضغطة زر
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
     steps:
-      - name: Checkout Kernel Source
-        uses: actions/checkout@v3
+      - name: 1. جلب الكود المصدري (Checkout)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install Build Dependencies
+      - name: 2. تثبيت المكتبات والاعتماديات (Dependencies)
         run: |
           sudo apt update
-          sudo apt install -y build-essential bc bison flex libssl-dev libelf-dev clang lld llvm qemu-user-static ccache
+          sudo apt install -y build-essential bc bison flex libssl-dev libelf-dev clang lld llvm qemu-user-static ccache zip unzip wget
+          sudo apt install -y python3 python3-pip # لضمان عمل أي سكربتات بايثون داخل الكيرنال
 
-      - name: Setup Toolchain
+      - name: 3. إعداد المترجم الذكي (Proton Clang)
         run: |
+          echo "--- تحميل مترجم Clang المتطور ---"
           mkdir -p clang
           wget -q https://github.com/kdrag0n/proton-clang/archive/refs/heads/master.tar.gz
           tar -xf master.tar.gz -C clang --strip-components=1
           rm master.tar.gz
+          echo "--- تم إعداد المترجم بنجاح ---"
 
-      - name: Build Kernel
+      - name: 4. بناء الكيرنال (Build Process)
         run: |
+          # التأكد من صلاحيات التنفيذ
           chmod +x build_ksu.sh
-          ./build_ksu.sh
+          
+          # تشغيل البناء مع توجيه المخرجات لملف لوج لمراجعتها في حال الفشل
+          ./build_ksu.sh || { echo "البناء فشل! راجع السجلات أعلاه"; exit 1; }
 
-      - name: Upload Kernel Artifacts
+      - name: 5. التحقق من الملف الناتج وضغطه
         if: success()
-        uses: actions/upload-artifact@v3
+        run: |
+          if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
+            echo "الملف موجود، جاري التجهيز للرفع..."
+            mkdir -p final_output
+            cp out/arch/arm64/boot/Image.gz-dtb final_output/
+            # إضافة معلومات الإصدار للملف
+            mv final_output/Image.gz-dtb final_output/KernelSU-Next-Sweet-$(date +'%Y%m%d').img
+          else
+            echo "خطأ: لم يتم العثور على ملف الكيرنال الناتج!"
+            exit 1
+          fi
+
+      - name: 6. رفع الكيرنال الجاهز (Upload Artifact)
+        if: success()
+        uses: actions/upload-artifact@v4 # أحدث إصدار مدعوم
         with:
-          name: Kernel-RedmiNote10Pro
-          path: out/arch/arm64/boot/Image.gz-dtb
+          name: Kernel-RedmiNote10Pro-KSU-Next
+          path: final_output/*
+          if-no-files-found: error
+          retention-days: 7 # الملف سيبقى متاحاً للتحميل لمدة 7 أيام
